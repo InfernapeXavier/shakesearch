@@ -9,6 +9,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
+
+	"github.com/lithammer/fuzzysearch/fuzzy"
 )
 
 func main() {
@@ -28,7 +32,7 @@ func main() {
 		port = "3001"
 	}
 
-	fmt.Printf("Listening on port %s...", port)
+	fmt.Printf("Listening on port %s... \n", port)
 	err = http.ListenAndServe(fmt.Sprintf(":%s", port), nil)
 	if err != nil {
 		log.Fatal(err)
@@ -36,8 +40,10 @@ func main() {
 }
 
 type Searcher struct {
-	CompleteWorks string
-	SuffixArray   *suffixarray.Index
+	CompleteWorks      string
+	SuffixArray        *suffixarray.Index
+	LinesCompleteWorks []string
+	MapCompleteWorks   map[int]string
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -68,15 +74,71 @@ func (s *Searcher) Load(filename string) error {
 		return fmt.Errorf("Load: %w", err)
 	}
 	s.CompleteWorks = string(dat)
+	s.LinesCompleteWorks = strings.Split(s.CompleteWorks, "\r\n")
 	s.SuffixArray = suffixarray.New(dat)
+	i := make(map[int]string)
+	s.MapCompleteWorks = i
+
+	for i, line := range s.LinesCompleteWorks {
+		s.MapCompleteWorks[i] = line
+	}
+
 	return nil
 }
 
 func (s *Searcher) Search(query string) []string {
-	idxs := s.SuffixArray.Lookup([]byte(query), -1)
+	// idxs := s.SuffixArray.Lookup([]byte(query), -1)
+	processedQuery := StringToList(query)
+
+	var wg sync.WaitGroup
+	idxs := make([][]int, len(processedQuery))
+
+	for i, word := range processedQuery {
+		wg.Add(1)
+		go s.WordLookup(word, &idxs[i], &wg)
+	}
+
+	wg.Wait()
+
+	fmt.Println(idxs)
+
+	resultIndices := IndexListToSet(idxs)
+
 	results := []string{}
-	for _, idx := range idxs {
+	for idx := range resultIndices {
 		results = append(results, s.CompleteWorks[idx-250:idx+250])
 	}
 	return results
+}
+
+func StringToList(query string) []string {
+	wordsInQuery := strings.Split(query, " ")
+	return wordsInQuery
+}
+
+func (s *Searcher) WordLookup(word string, idx *[]int, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for lineNumber, line := range s.LinesCompleteWorks {
+		processedLine := StringToList(line)
+		matchingWords := fuzzy.FindNormalizedFold(word, processedLine)
+
+		if len(matchingWords) > 0 {
+			*idx = append(*idx, lineNumber)
+			fmt.Println(matchingWords)
+		}
+	}
+}
+
+func IndexListToSet(idxs [][]int) map[int]bool {
+	set := make(map[int]bool)
+
+	for _, indexList := range idxs {
+		for _, index := range indexList {
+			if !set[index] {
+				set[index] = true
+			}
+		}
+	}
+	return set
 }
