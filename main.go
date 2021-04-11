@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -39,11 +40,17 @@ func main() {
 	}
 }
 
+type SearcherResult struct {
+	StartIndex int
+	EndIndex   int
+	LineNumber int
+}
 type Searcher struct {
 	CompleteWorks      string
 	SuffixArray        *suffixarray.Index
 	LinesCompleteWorks []string
 	MapCompleteWorks   map[int]string
+	Result             []SearcherResult
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -100,15 +107,15 @@ func (s *Searcher) Search(query string) []string {
 
 	wg.Wait()
 
-	fmt.Println(idxs)
-
 	resultIndices := IndexListToSet(idxs)
+	s.ProcessResults(resultIndices)
+	res := s.GatherResultText()
+	result := s.ProcessHTMLResult(res)
 
-	results := []string{}
-	for idx := range resultIndices {
-		results = append(results, s.CompleteWorks[idx-250:idx+250])
-	}
-	return results
+	fmt.Println(result)
+
+	return res
+
 }
 
 func StringToList(query string) []string {
@@ -125,12 +132,11 @@ func (s *Searcher) WordLookup(word string, idx *[]int, wg *sync.WaitGroup) {
 
 		if len(matchingWords) > 0 {
 			*idx = append(*idx, lineNumber)
-			fmt.Println(matchingWords)
 		}
 	}
 }
 
-func IndexListToSet(idxs [][]int) map[int]bool {
+func IndexListToSet(idxs [][]int) []int {
 	set := make(map[int]bool)
 
 	for _, indexList := range idxs {
@@ -140,5 +146,67 @@ func IndexListToSet(idxs [][]int) map[int]bool {
 			}
 		}
 	}
-	return set
+
+	indices := make([]int, 0, len(set))
+	for k := range set {
+		indices = append(indices, k)
+	}
+	sort.Ints(indices)
+	return indices
+}
+
+func (s *Searcher) GetLineStart(resultIndex int) int {
+
+	lineStart := 0
+	for curr := resultIndex; curr >= 0; curr-- {
+		if s.MapCompleteWorks[curr] == "" {
+			lineStart = curr + 1
+			break
+		}
+	}
+
+	return lineStart
+}
+
+func (s *Searcher) GetLineEnd(resultIndex int) int {
+
+	lineEnd := 169442
+	for curr := resultIndex; curr < len(s.LinesCompleteWorks); curr++ {
+		if s.MapCompleteWorks[curr] == "" {
+			lineEnd = curr - 1
+			break
+		}
+	}
+
+	return lineEnd
+}
+
+func (s *Searcher) ProcessResults(results []int) {
+
+	var processedResults []SearcherResult
+	for _, resIndex := range results {
+		res := SearcherResult{}
+		res.StartIndex = s.GetLineStart(resIndex)
+		res.EndIndex = s.GetLineEnd(resIndex)
+		res.LineNumber = res.StartIndex
+
+		processedResults = append(processedResults, res)
+	}
+
+	s.Result = processedResults
+}
+
+func (s *Searcher) GatherResultText() []string {
+
+	var textResult []string
+	for _, result := range s.Result {
+		currentText := strings.Join(s.LinesCompleteWorks[result.StartIndex:(result.EndIndex+1)], "\r\n")
+		textResult = append(textResult, currentText)
+	}
+
+	return textResult
+}
+
+func (s *Searcher) ProcessHTMLResult(textResults []string) []string {
+	return make([]string, 2)
 }
