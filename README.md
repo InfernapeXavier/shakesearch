@@ -36,5 +36,15 @@ current state, can be deployed easily on Heroku's free tier.
 
 ## Changes
 
+- Overhauled the way the search worked. My search uses the Levenshtein distance method via the [FuzzySearch](https://github.com/lithammer/fuzzysearch) library to find all matches that are similar to the search query.  
+- The search results are displayed sorted by their Levenshtein distance, and in cases where the Levenshtein distance is the same, they are displayed in their order of appearance in the text file. 
+- I also changed the way search results are displayed. The search result is now accompanied by the line number where the result starts and the search result includes the entire dialog instead of just 500 characters and the word that gets matched is highlighted.
+- The search is done on each word in the query separately as Fuzzy Search doesn't do well when using the entire search query as a whole.
+- The app is hosted on heroku at this [link](https://rohitc-shakesearch.herokuapp.com/)
 
+## Future Work
 
+- As of now, the space complexity is quite high as the complete text is being stored in a couple of different formats, if I had more time, I would try to store the text only once in a format usable for in all the ways I want to.
+- As a problem, I think the most efficient way to process the results would be to have some substantial amount of pre-processing on the text and I would have opted to pre-process to extract things like Chapter Names, Character Names and such to have a richer results display.
+- I would also refactor the code to have proper packages for the smaller utility functions, right now the code looks very messy.
+- I have opted for a very simplistic approach to the way results are displayed, I would definitely clean the display page a bit as well.  
