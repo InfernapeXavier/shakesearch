@@ -14,7 +14,7 @@ const Controller = {
     const table = document.getElementById("table-body");
     const rows = [];
     for (let result of results) {
-      rows.push(`<tr>${result}</tr>`);
+      rows.push(`<p>${result}</p><br><br><br>`);
     }
     table.innerHTML = rows;
   },

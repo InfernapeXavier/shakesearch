@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -51,6 +52,7 @@ type Searcher struct {
 	LinesCompleteWorks []string
 	MapCompleteWorks   map[int]string
 	Result             []SearcherResult
+	WordMatches        map[string]bool
 }
 
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
@@ -83,8 +85,7 @@ func (s *Searcher) Load(filename string) error {
 	s.CompleteWorks = string(dat)
 	s.LinesCompleteWorks = strings.Split(s.CompleteWorks, "\r\n")
 	s.SuffixArray = suffixarray.New(dat)
-	i := make(map[int]string)
-	s.MapCompleteWorks = i
+	s.MapCompleteWorks = make(map[int]string)
 
 	for i, line := range s.LinesCompleteWorks {
 		s.MapCompleteWorks[i] = line
@@ -109,12 +110,11 @@ func (s *Searcher) Search(query string) []string {
 
 	resultIndices := IndexListToSet(idxs)
 	s.ProcessResults(resultIndices)
-	res := s.GatherResultText()
+	textResults := s.GatherResultText()
+	res := s.SortResults(textResults, processedQuery)
 	result := s.ProcessHTMLResult(res)
 
-	fmt.Println(result)
-
-	return res
+	return result
 
 }
 
@@ -126,12 +126,18 @@ func StringToList(query string) []string {
 func (s *Searcher) WordLookup(word string, idx *[]int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	s.WordMatches = make(map[string]bool)
+
 	for lineNumber, line := range s.LinesCompleteWorks {
 		processedLine := StringToList(line)
-		matchingWords := fuzzy.FindNormalizedFold(word, processedLine)
+		matchingWords := fuzzy.RankFindNormalizedFold(word, processedLine)
+		sort.Sort(matchingWords)
 
 		if len(matchingWords) > 0 {
 			*idx = append(*idx, lineNumber)
+			for _, matchedWord := range matchingWords {
+				s.WordMatches[matchedWord.Target] = true
+			}
 		}
 	}
 }
@@ -207,6 +213,37 @@ func (s *Searcher) GatherResultText() []string {
 	return textResult
 }
 
+func (s *Searcher) SortResults(textResults []string, query []string) []string {
+
+	for _, word := range query {
+		rankedMatches := fuzzy.RankFindNormalizedFold(word, textResults)
+		sort.Sort(rankedMatches)
+	}
+
+	return textResults
+
+}
+
 func (s *Searcher) ProcessHTMLResult(textResults []string) []string {
-	return make([]string, 2)
+	resultHTMLReady := make([]string, len(textResults))
+
+	for i, stringLine := range textResults {
+		lineHTML := "<i>Line Number: " + strconv.Itoa(s.Result[i].LineNumber) + "</i><br>" + strings.Replace(stringLine, "\r\n", "<br>", -1)
+
+		for matchedWord := range s.WordMatches {
+			start := strings.Index(lineHTML, matchedWord)
+
+			if start == -1 {
+				continue
+			}
+
+			end := start + len(matchedWord)
+			lineHTML = lineHTML[:start] + "<b>" + lineHTML[start:end] + "</b>" + lineHTML[end:]
+		}
+
+		resultHTMLReady[i] = lineHTML
+
+	}
+
+	return resultHTMLReady
 }
