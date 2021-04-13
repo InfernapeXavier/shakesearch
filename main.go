@@ -55,6 +55,11 @@ type Searcher struct {
 	WordMatches        map[string]bool
 }
 
+type IndexLevDist struct {
+	Index    int
+	Distance int
+}
+
 func handleSearch(searcher Searcher) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		query, ok := r.URL.Query()["q"]
@@ -99,7 +104,7 @@ func (s *Searcher) Search(query string) []string {
 	processedQuery := StringToList(query)
 
 	var wg sync.WaitGroup
-	idxs := make([][]int, len(processedQuery))
+	idxs := make([][]IndexLevDist, len(processedQuery))
 
 	for i, word := range processedQuery {
 		wg.Add(1)
@@ -108,14 +113,14 @@ func (s *Searcher) Search(query string) []string {
 
 	wg.Wait()
 
-	resultIndices := IndexListToSet(idxs)
-	s.ProcessResults(resultIndices)
+	sortedIndices := SortIndexList(idxs)
+	s.ProcessResults(sortedIndices)
 	textResults := s.GatherResultText()
-	res := s.SortResults(textResults, processedQuery)
-	result := s.ProcessHTMLResult(res)
+	result := s.ProcessHTMLResult(textResults)
+
+	fmt.Println("Found " + strconv.Itoa(len(result)) + " results.")
 
 	return result
-
 }
 
 func StringToList(query string) []string {
@@ -123,7 +128,7 @@ func StringToList(query string) []string {
 	return wordsInQuery
 }
 
-func (s *Searcher) WordLookup(word string, idx *[]int, wg *sync.WaitGroup) {
+func (s *Searcher) WordLookup(word string, idx *[]IndexLevDist, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	s.WordMatches = make(map[string]bool)
@@ -134,7 +139,12 @@ func (s *Searcher) WordLookup(word string, idx *[]int, wg *sync.WaitGroup) {
 		sort.Sort(matchingWords)
 
 		if len(matchingWords) > 0 {
-			*idx = append(*idx, lineNumber)
+			currentLine := IndexLevDist{
+				lineNumber,
+				matchingWords[0].Distance,
+			}
+			*idx = append(*idx, currentLine)
+
 			for _, matchedWord := range matchingWords {
 				s.WordMatches[matchedWord.Target] = true
 			}
@@ -142,22 +152,33 @@ func (s *Searcher) WordLookup(word string, idx *[]int, wg *sync.WaitGroup) {
 	}
 }
 
-func IndexListToSet(idxs [][]int) []int {
+func SortIndexList(idxs [][]IndexLevDist) []int {
 	set := make(map[int]bool)
 
+	// Flatten List
+	flatList := []IndexLevDist{}
+
 	for _, indexList := range idxs {
-		for _, index := range indexList {
-			if !set[index] {
-				set[index] = true
+		flatList = append(flatList, indexList...)
+	}
+
+	// Sort based on Levenshtein Distance
+	sort.SliceStable(flatList, func(i, j int) bool {
+		return flatList[i].Distance < flatList[j].Distance
+	})
+
+	indices := []int{}
+
+	// Convert to "set"
+	for _, indexList := range idxs {
+		for _, resObj := range indexList {
+			if !set[resObj.Index] {
+				set[resObj.Index] = true
+				indices = append(indices, resObj.Index)
 			}
 		}
 	}
 
-	indices := make([]int, 0, len(set))
-	for k := range set {
-		indices = append(indices, k)
-	}
-	sort.Ints(indices)
 	return indices
 }
 
@@ -213,17 +234,6 @@ func (s *Searcher) GatherResultText() []string {
 	return textResult
 }
 
-func (s *Searcher) SortResults(textResults []string, query []string) []string {
-
-	for _, word := range query {
-		rankedMatches := fuzzy.RankFindNormalizedFold(word, textResults)
-		sort.Sort(rankedMatches)
-	}
-
-	return textResults
-
-}
-
 func (s *Searcher) ProcessHTMLResult(textResults []string) []string {
 	resultHTMLReady := make([]string, len(textResults))
 
@@ -238,7 +248,7 @@ func (s *Searcher) ProcessHTMLResult(textResults []string) []string {
 			}
 
 			end := start + len(matchedWord)
-			lineHTML = lineHTML[:start] + "<b>" + lineHTML[start:end] + "</b>" + lineHTML[end:]
+			lineHTML = lineHTML[:start] + "<mark>" + lineHTML[start:end] + "</mark>" + lineHTML[end:]
 		}
 
 		resultHTMLReady[i] = lineHTML
