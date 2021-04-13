@@ -47,4 +47,4 @@ current state, can be deployed easily on Heroku's free tier.
 - As of now, the space complexity is quite high as the complete text is being stored in a couple of different formats, if I had more time, I would try to store the text only once in a format usable for in all the ways I want to.
 - As a problem, I think the most efficient way to process the results would be to have some substantial amount of pre-processing on the text and I would have opted to pre-process to extract things like Chapter Names, Character Names and such to have a richer results display.
 - I would also refactor the code to have proper packages for the smaller utility functions, right now the code looks very messy.
-- I have opted for a very simplistic approach to the way results are displayed, I would definitely clean the display page a bit as well.  
+- I have opted for a very simplistic approach to the way results are displayed, I would definitely clean the display page a bit as well and add status updates so that the user knows if the page errors out or if the backend is still working on their query.  
