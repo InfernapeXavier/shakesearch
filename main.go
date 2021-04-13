@@ -220,7 +220,17 @@ func (s *Searcher) ProcessResults(results []int) {
 		processedResults = append(processedResults, res)
 	}
 
-	s.Result = processedResults
+	processedResultsSet := []SearcherResult{}
+	processedResultsMap := map[SearcherResult]bool{}
+
+	for _, processed := range processedResults {
+		if !processedResultsMap[processed] {
+			processedResultsMap[processed] = true
+			processedResultsSet = append(processedResultsSet, processed)
+		}
+	}
+
+	s.Result = processedResultsSet
 }
 
 func (s *Searcher) GatherResultText() []string {
